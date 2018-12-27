@@ -1,0 +1,26 @@
+#ifndef __NRF52840_MDK_BAKEIT_H__
+#define __NRF52840_MDK_BAKEIT_H__
+
+//base board file
+#include "nrf52840_mdk.h"
+
+#define RS485_TX_EN_PIN NRF_GPIO_PIN_MAP(0,5)
+#define RS485_TX_PIN    NRF_GPIO_PIN_MAP(0,6)
+#define RS485_RX_EN_PIN NRF_GPIO_PIN_MAP(0,7)
+#define RS485_RX_PIN    NRF_GPIO_PIN_MAP(0,8)
+
+#define MODBUS_TX_EN_PIN NRF_GPIO_PIN_MAP(0,9)
+#define MODBUS_TX_PIN    NRF_GPIO_PIN_MAP(0,10)
+#define MODBUS_RX_EN_PIN NRF_GPIO_PIN_MAP(0,11)
+#define MODBUS_RX_PIN    NRF_GPIO_PIN_MAP(0,12)
+
+#define RELAY_CTRL_PIN   NRF_GPIO_PIN_MAP(0,13)
+#define LIMIT_IN_PIN     NRF_GPIO_PIN_MAP(0,14)
+#define RUN_IN           NRF_GPIO_PIN_MAP(0,15)
+#define ALARM_IN         NRF_GPIO_PIN_MAP(0,16)
+#define AUX_IN           NRF_GPIO_PIN_MAP(0,25)
+
+#define PWR_5V_MONITOR NRF_SAADC_INPUT_VDD
+
+#endif
+
