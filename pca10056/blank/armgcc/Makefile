@@ -2,7 +2,7 @@ PROJECT_NAME     := serial_nrf52840_mdk_bakeit
 TARGETS          := nrf52840_xxaa
 OUTPUT_DIRECTORY := _build
 
-SDK_ROOT := ../../../../../..
+SDK_ROOT := ../../../../nrf5_sdk
 PROJ_DIR := ../../..
 
 
