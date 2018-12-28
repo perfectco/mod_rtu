@@ -92,12 +92,6 @@ int main(void)
     bsp_board_buttons_init();
 
     //nrf_gpio_pin_clear(MODBUS_RX_EN_PIN);
-    nrf_gpio_cfg_output(MODBUS_RX_EN_PIN);
-    nrf_gpio_pin_set(MODBUS_RX_EN_PIN);
-
-    nrf_gpio_cfg_output(MODBUS_TX_EN_PIN);
-    nrf_gpio_pin_set(MODBUS_TX_EN_PIN);
-
     mod_rtu_tx_t mod_rtu_tx;
     mod_rtu_tx_init(&mod_rtu_tx);
     (void)mod_rtu_tx;
