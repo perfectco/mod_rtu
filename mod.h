@@ -13,8 +13,9 @@ typedef struct mod_rtu_msg_s {
 typedef enum mod_rtu_error_e {
   mod_rtu_error_ok = 0,
   mod_rtu_error_unknown = 1,
-  mod_rtu_error_invalid_state,
-  } mod_rtu_error_t;
+  mod_rtu_error_invalid_state = 2,
+  mod_rtu_error_parameter = 3,
+} mod_rtu_error_t;
 
 typedef struct mod_rtu_slave_s {
 } mod_rtu_slave_t;
