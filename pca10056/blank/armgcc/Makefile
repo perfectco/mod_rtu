@@ -39,6 +39,7 @@ SRC_FILES += \
   $(SDK_ROOT)/components/libraries/bsp/bsp_nfc.c \
   $(PROJ_DIR)/main.c \
   $(PROJ_DIR)/mod_rtu_tx.c \
+  $(PROJ_DIR)/mbcrc.c \
   $(SDK_ROOT)/components/toolchain/gcc/gcc_startup_nrf52840.S \
   $(SDK_ROOT)/components/toolchain/system_nrf52840.c \
 	$(SDK_ROOT)/components/libraries/experimental_log/src/nrf_log_backend_uart.c \
