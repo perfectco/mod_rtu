@@ -20,10 +20,14 @@ typedef struct mod_rtu_tx_s {
   mod_rtu_msg_t tx_buf;
   mod_rtu_msg_t rx_buf;
   bool rx_msg_ok;
+  bool rx_35;
+  bool rx_done;
   bool serial_init;
   bool timer_init;
   nrf_drv_uart_t uart;
-  app_timer_t timer;
+  nrf_drv_timer_t timer;
+  uint32_t tx_en_pin;
+  uint32_t rx_en_pin;
 } mod_rtu_tx_t;
 
 typedef enum mod_rtu_tx_event_type_e {

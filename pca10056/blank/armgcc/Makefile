@@ -31,6 +31,8 @@ SRC_FILES += \
   $(SDK_ROOT)/components/drivers_nrf/gpiote/nrf_drv_gpiote.c \
   $(SDK_ROOT)/components/drivers_nrf/power/nrf_drv_power.c \
   $(SDK_ROOT)/components/drivers_nrf/uart/nrf_drv_uart.c \
+  $(SDK_ROOT)/components/drivers_nrf/ppi/nrf_drv_ppi.c \
+  $(SDK_ROOT)/components/drivers_nrf/timer/nrf_drv_timer.c \
   $(SDK_ROOT)/components/drivers_nrf/nrf_soc_nosd/nrf_nvic.c \
   $(SDK_ROOT)/components/drivers_nrf/nrf_soc_nosd/nrf_soc.c \
   $(SDK_ROOT)/components/libraries/bsp/bsp.c \
@@ -61,6 +63,7 @@ INC_FOLDERS += \
   $(SDK_ROOT)/components/libraries/hardfault \
   $(SDK_ROOT)/components/drivers_nrf/timer \
   $(SDK_ROOT)/components/drivers_nrf/uart \
+  $(SDK_ROOT)/components/drivers_nrf/ppi \
   $(SDK_ROOT)/components/libraries/balloc \
   $(SDK_ROOT)/components/libraries/hardfault/nrf52 \
   $(SDK_ROOT)/components/libraries/bsp \
