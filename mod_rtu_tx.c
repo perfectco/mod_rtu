@@ -19,6 +19,8 @@ NRF_LOG_MODULE_REGISTER();
 typedef struct mod_rtu_tx_serial_nrf52_config_s {
   uint32_t tx_pin;
   uint32_t rx_pin;
+  uint16_t tx_en_pin;
+  uint16_t rx_en_pin;
   nrf_uart_parity_t parity;
   nrf_uart_baudrate_t baudrate;
   uint8_t interrupt_priority;
@@ -29,13 +31,10 @@ typedef struct mod_rtu_tx_timer_nrf52_config_s {
   uint8_t timer_instance;
 } mod_rtu_tx_timer_nrf52_config_t;
 
-typedef struct mod_rtu_tx_gpio_nrf52_config_s {
-  uint16_t tx_en_pin;
-  uint16_t rx_en_pin;
-} mod_rtu_tx_gpio_nrf52_config_t;
-
 static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_context);
 static void timer_event_handler(nrf_timer_event_t p_event, void * p_context);
+static void set_rx_en(mod_rtu_tx_t * const me, const bool enable);
+static void set_tx_en(mod_rtu_tx_t * const me, const bool enable);
 
 static mod_rtu_error_t timer_init(mod_rtu_tx_t * const me, const mod_rtu_tx_timer_nrf52_config_t * const p_config) {
   nrf_drv_timer_config_t timer_config = (nrf_drv_timer_config_t)NRF_DRV_TIMER_DEFAULT_CONFIG;
@@ -185,6 +184,15 @@ static mod_rtu_error_t serial_init(mod_rtu_tx_t * const me,
         return mod_rtu_error_unknown;
     }
 
+    //configure enable pins
+    nrf_gpio_cfg_output(p_config->tx_en_pin);
+    nrf_gpio_cfg_output(p_config->rx_en_pin);
+    me->tx_en_pin = p_config->tx_en_pin;
+    me->rx_en_pin = p_config->rx_en_pin;
+
+    set_rx_en(me, false);
+    set_tx_en(me, false);
+
     return mod_rtu_error_ok;
 }
 
@@ -202,16 +210,6 @@ static void set_tx_en(mod_rtu_tx_t * const me, const bool enable) {
   } else {
     nrf_gpio_pin_clear(me->tx_en_pin);
   }
-}
-
-static void gpio_init(mod_rtu_tx_t * const me,
-                           const mod_rtu_tx_gpio_nrf52_config_t * const p_config) {
-  nrf_gpio_cfg_output(p_config->tx_en_pin);
-  nrf_gpio_cfg_output(p_config->rx_en_pin);
-  me->tx_en_pin = p_config->tx_en_pin;
-  me->rx_en_pin = p_config->rx_en_pin;
-  set_rx_en(me, false);
-  set_tx_en(me, false);
 }
 
 static void return_to_idle(mod_rtu_tx_t * const me) {
@@ -286,6 +284,8 @@ mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me) {
   const mod_rtu_tx_serial_nrf52_config_t serial_config = {
     .tx_pin = MODBUS_TX_PIN,
     .rx_pin = MODBUS_RX_PIN,
+    .tx_en_pin = MODBUS_TX_EN_PIN,
+    .rx_en_pin = MODBUS_RX_EN_PIN,
     .parity = NRF_UARTE_PARITY_INCLUDED,
     .baudrate = NRF_UARTE_BAUDRATE_19200,
     .interrupt_priority = UART_DEFAULT_CONFIG_IRQ_PRIORITY,
@@ -295,13 +295,6 @@ mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me) {
   me->serial_init = true;
 
   ppi_init(me);
-
-  const mod_rtu_tx_gpio_nrf52_config_t gpio_config = {
-    .tx_en_pin = MODBUS_TX_EN_PIN,
-    .rx_en_pin = MODBUS_RX_EN_PIN,
-  };
-
-  gpio_init(me, &gpio_config);
 
   return mod_rtu_error_ok;
 }
