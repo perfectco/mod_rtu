@@ -8,6 +8,14 @@
 #include "app_timer.h" //todo: need higher resolution
 #include "nrf_drv_ppi.h"
 
+#define MOD_RTU_TX_FRAME_OVERHEAD 4
+#define MOD_RTU_TX_MAX_RAW_MSG_LENGTH (MOD_RTU_MAX_DATA_LENGTH + MOD_RTU_TX_FRAME_OVERHEAD)
+
+typedef struct mod_rtu_tx_raw_msg_s {
+  uint16_t data_length;
+  uint8_t data[MOD_RTU_TX_MAX_RAW_MSG_LENGTH];
+} mod_rtu_tx_raw_msg_t;
+
 typedef enum mod_rtu_tx_state_e {
   mod_rtu_tx_state_init, //initial state, waiting for expiration of t35
   mod_rtu_tx_state_idle,
@@ -18,8 +26,9 @@ typedef enum mod_rtu_tx_state_e {
 
 typedef struct mod_rtu_tx_s {
   mod_rtu_tx_state_t state;
-  mod_rtu_msg_t tx_buf;
-  mod_rtu_msg_t rx_buf;
+  mod_rtu_tx_raw_msg_t tx_raw_msg; //current/last outgoing message
+  mod_rtu_tx_raw_msg_t rx_raw_msg; //buffer for receiving message
+  mod_rtu_msg_t last_rx_msg; //last validated received message
   bool rx_msg_ok;
   bool rx_35;
   bool rx_done;
@@ -30,14 +39,18 @@ typedef struct mod_rtu_tx_s {
   uint32_t tx_en_pin;
   uint32_t rx_en_pin;
   nrf_ppi_channel_group_t ppi_group;
+  bool master_mode; //true if in master mode, false for slave mode
+  uint8_t own_addr; //if in slave mode, our address
 } mod_rtu_tx_t;
 
 typedef enum mod_rtu_tx_event_type_e {
   mod_rtu_tx_event_ready, //transitioned from init state to idle
   mod_rtu_tx_event_msg_rx, //got a new message
-  mod_rtu_tx_event_rx_error,
+  mod_rtu_tx_event_rx_error, //error while receving
+  mod_rtu_tx_event_tx_done, //done sending
 } mod_rtu_tx_event_type_t;
 
+//data for msg_rx_event
 typedef struct mod_rtu_tx_msg_received_data_s {
   const mod_rtu_msg_t *msg;
 } mod_rtu_tx_msg_received_data_t;
@@ -78,6 +91,7 @@ mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me);
 /*
 Send a modbus RTU message
 */
-mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_slave_addr_t address, const mod_rtu_msg_t *const msg);
+mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_msg_t *const msg);
+
 
 #endif

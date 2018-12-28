@@ -12,6 +12,8 @@ NRF_LOG_MODULE_REGISTER();
 
 #include "nrf_drv_timer.h"
 
+#include "mbcrc.h"
+
 #define T15_US 1432
 #define T35_US 2578
 
@@ -219,7 +221,7 @@ static void return_to_idle(mod_rtu_tx_t * const me) {
   set_tx_en(me, false);
   set_rx_en(me, true);
   //enable reception of only 1st character so we get an interrupt
-  nrf_drv_uart_rx(&me->uart, me->rx_buf.buf, 1);
+  nrf_drv_uart_rx(&me->uart, me->rx_raw_msg.data, 1);
   //todo: error handling?
   nrf_drv_timer_pause(&me->timer);
   ret_code_t ret = nrf_drv_ppi_group_disable(me->ppi_group);
@@ -230,14 +232,14 @@ static void finish_rx(mod_rtu_tx_t * const me) {
   me->state = mod_rtu_tx_state_ctrl_wait; //in case we weren't already there
   //todo process the just-received messaged and send to callback
   return_to_idle(me);
-  NRF_LOG_INFO("got message, %d bytes", me->rx_buf.length);
-  char msgout[me->rx_buf.length*2+1];
+  NRF_LOG_INFO("got message, %d bytes", me->rx_raw_msg.data_length);
+  char msgout[me->rx_raw_msg.data_length*2+1];
   int idx = 0;
-  for (idx = 0; idx<me->rx_buf.length; idx++) {
-    sprintf(msgout+idx*2,"%02x",me->rx_buf.buf[idx]);
+  for (idx = 0; idx < me->rx_raw_msg.data_length; idx++) {
+    sprintf(msgout + idx * 2, "%02x", me->rx_raw_msg.data[idx]);
   }
-  msgout[me->rx_buf.length*2]=0;
-  NRF_LOG_DEBUG("msg: %s",msgout);
+  msgout[me->rx_raw_msg.data_length * 2] = 0;
+  NRF_LOG_DEBUG("msg: %s", msgout);
 }
 
 static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_context) {
@@ -256,7 +258,7 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
       if (me->state == mod_rtu_tx_state_idle) {
         //got first byte
         //start of reception, re-enable rx for remainder of message
-        nrf_drv_uart_rx(&me->uart, me->rx_buf.buf+1, 255);
+        nrf_drv_uart_rx(&me->uart, me->rx_raw_msg.data + 1, 255);
         me->state = mod_rtu_tx_state_reception;
         //enable timeout for subsequent bytes
         //ppi group lets serial reset timer
@@ -270,7 +272,7 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
                  me->state == mod_rtu_tx_state_ctrl_wait) {
         //we might get xre_done in reception if the buffer fills up
         //set message length for later processing, include the additional first byte we received
-        me->rx_buf.length = p_event->data.rxtx.bytes+1;
+        me->rx_raw_msg.data_length = p_event->data.rxtx.bytes + 1;
         me->rx_done = true;
         //events may come out of order, check if timer flag already set
         if (me->rx_35) {
@@ -332,7 +334,7 @@ mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me) {
   return mod_rtu_error_ok;
 }
 
-mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_slave_addr_t address, const mod_rtu_msg_t *const msg) {
+mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_msg_t *const msg) {
   if (me->state != mod_rtu_tx_state_idle) {
     return mod_rtu_error_invalid_state;
   }
@@ -340,12 +342,21 @@ mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_slave_addr
   //this will cause a rx_done event, but it will be ignored
   nrf_drv_uart_rx_abort(&me->uart);
   NRF_LOG_INFO("sending");
-  memcpy(me->tx_buf.buf, msg->buf, msg->length);
-  me->tx_buf.length = msg->length;
+
+  //pack message into raw buffer and calculate crc
+  me->tx_raw_msg.data[MOD_RTU_ADDR_OFFSET] = msg->address;
+  me->tx_raw_msg.data[MOD_RTU_FUNCTION_OFFSET] = msg->function;
+  memcpy(me->tx_raw_msg.data + MOD_RTU_DATA_OFFSET, msg->data, msg->data_length);
+  me->tx_raw_msg.data_length = msg->data_length + MOD_RTU_TX_FRAME_OVERHEAD;
+  const uint16_t crc = usMBCRC16(me->tx_raw_msg.data, msg->data_length+2);
+  const size_t crc_offset = me->tx_raw_msg.data_length - 2;
+  me->tx_raw_msg.data[crc_offset] = crc; //low order byte
+  me->tx_raw_msg.data[crc_offset + 1] = crc >> 8; //high order byte
+  NRF_LOG_DEBUG("orig len %d, raw_len %d, crc %04x", msg->data_length, me->tx_raw_msg.data_length, crc);
 
   set_rx_en(me, false);
   set_tx_en(me, true);
-  nrf_drv_uart_tx(&(me->uart), me->tx_buf.buf, me->tx_buf.length);
+  nrf_drv_uart_tx(&me->uart, me->tx_raw_msg.data, me->tx_raw_msg.data_length);
   return mod_rtu_error_ok;
 }
 
@@ -358,10 +369,12 @@ void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_
 
       //todo: testing
       mod_rtu_msg_t msg;
-      strcpy((char *)msg.buf, "this is a test string, dummy");
-      msg.length = strlen((char *)msg.buf);
+      strcpy((char *)msg.data, "this is a test string, dummy");
+      msg.data_length = strlen((char *)msg.data) - 1;
+      msg.address = 1;
+      msg.function = 1;
 
-      mod_rtu_tx_send(me, 0, &msg);
+      mod_rtu_tx_send(me, &msg);
     }
     break;
 
