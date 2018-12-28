@@ -11,7 +11,6 @@ NRF_LOG_MODULE_REGISTER();
 #include <string.h>
 
 #include "nrf_drv_timer.h"
-#include "nrf_drv_ppi.h"
 
 #define T15_US 1432
 #define T35_US 2578
@@ -77,10 +76,9 @@ static mod_rtu_error_t timer_init(mod_rtu_tx_t * const me, const mod_rtu_tx_time
   const uint32_t compare15 = nrf_drv_timer_us_to_ticks(&me->timer, T15_US);
   nrf_drv_timer_compare(&me->timer, 0, compare15, true);
 
-  //setup compare register for T3.5
+  //setup compare register for T3.5. Also stops timer.
   const uint32_t compare35 = nrf_drv_timer_us_to_ticks(&me->timer, T35_US);
-  nrf_drv_timer_compare(&me->timer, 1, compare35, true);
-
+  nrf_drv_timer_extended_compare(&me->timer, 1, compare35, NRF_TIMER_SHORT_COMPARE1_STOP_MASK, true);
 
   return mod_rtu_error_ok;
 }
@@ -95,6 +93,7 @@ static mod_rtu_error_t ppi_init(mod_rtu_tx_t *const me) {
   //ppi_init returns either success or already initialized, so ignore either way
   (void)nrf_drv_ppi_init();
 
+  //nrf_drv_timer_resume is synonymous with start task
   nrf_ppi_channel_t channel_start;
   ret_code_t ret = nrf_drv_ppi_channel_alloc(&channel_start);
   if (ret != NRF_SUCCESS) {
@@ -118,18 +117,16 @@ static mod_rtu_error_t ppi_init(mod_rtu_tx_t *const me) {
   }
 
   nrf_ppi_channel_group_t group;
+
   ret = nrf_drv_ppi_group_alloc(&group);
   if (ret != NRF_SUCCESS) {
     return mod_rtu_error_unknown;
   }
+  me->ppi_group = group;
+  
 
   const uint32_t group_mask = nrf_drv_ppi_channel_to_mask(channel_start) | nrf_drv_ppi_channel_to_mask(channel_clear);
   ret = nrf_drv_ppi_channels_include_in_group(group_mask, group);
-  if (ret != NRF_SUCCESS) {
-    return mod_rtu_error_unknown;
-  }
-
-  ret = nrf_drv_ppi_group_enable(group);
   if (ret != NRF_SUCCESS) {
     return mod_rtu_error_unknown;
   }
@@ -221,13 +218,26 @@ static void return_to_idle(mod_rtu_tx_t * const me) {
   me->rx_35 = false;
   set_tx_en(me, false);
   set_rx_en(me, true);
-  nrf_drv_uart_rx(&me->uart, me->rx_buf.buf, 255);
+  //enable reception of only 1st character so we get an interrupt
+  nrf_drv_uart_rx(&me->uart, me->rx_buf.buf, 1);
+  //todo: error handling?
+  nrf_drv_timer_pause(&me->timer);
+  ret_code_t ret = nrf_drv_ppi_group_disable(me->ppi_group);
+  (void)ret;
 }
 
 static void finish_rx(mod_rtu_tx_t * const me) {
   me->state = mod_rtu_tx_state_ctrl_wait; //in case we weren't already there
   //todo process the just-received messaged and send to callback
   return_to_idle(me);
+  NRF_LOG_INFO("got message, %d bytes", me->rx_buf.length);
+  char msgout[me->rx_buf.length*2+1];
+  int idx = 0;
+  for (idx = 0; idx<me->rx_buf.length; idx++) {
+    sprintf(msgout+idx*2,"%02x",me->rx_buf.buf[idx]);
+  }
+  msgout[me->rx_buf.length*2]=0;
+  NRF_LOG_DEBUG("msg: %s",msgout);
 }
 
 static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_context) {
@@ -243,17 +253,30 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
     break;
 
     case NRF_DRV_UART_EVT_RX_DONE: {
-      //depending on how the timing works out, we
-      //might finish in idle, reception, or ctrl_wait
-      if (me->state == mod_rtu_tx_state_idle ||
-          me->state == mod_rtu_tx_state_reception ||
-          me->state == mod_rtu_tx_state_ctrl_wait) {
-        //how long was the received data?
-        me->rx_buf.length = p_event->data.rxtx.bytes;
-        NRF_LOG_INFO("got message, %d bytes", me->rx_buf.length);
+      if (me->state == mod_rtu_tx_state_idle) {
+        //got first byte
+        //start of reception, re-enable rx for remainder of message
+        nrf_drv_uart_rx(&me->uart, me->rx_buf.buf+1, 255);
+        me->state = mod_rtu_tx_state_reception;
+        //enable timeout for subsequent bytes
+        //ppi group lets serial reset timer
+        ret_code_t ret = nrf_drv_ppi_group_enable(me->ppi_group);
+        //todo: error handling?
+        (void)ret;
+        //start timeout for next byte
+        nrf_drv_timer_clear(&me->timer);
+        nrf_drv_timer_resume(&me->timer);
+      } else if (me->state == mod_rtu_tx_state_reception ||
+                 me->state == mod_rtu_tx_state_ctrl_wait) {
+        //we might get xre_done in reception if the buffer fills up
+        //set message length for later processing, include the additional first byte we received
+        me->rx_buf.length = p_event->data.rxtx.bytes+1;
         me->rx_done = true;
+        //events may come out of order, check if timer flag already set
         if (me->rx_35) {
           finish_rx(me);
+        } else {
+          me->state = mod_rtu_tx_state_ctrl_wait;
         }
       }
     }
@@ -262,7 +285,17 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
     case NRF_DRV_UART_EVT_ERROR:
     NRF_LOG_DEBUG("uart error: %d", p_event->data.error.error_mask);
     nrf_drv_uart_rx_abort(&me->uart);
-    return_to_idle(me);
+    switch (me->state) {
+      //if this is idle or reception, bad byte
+      //is part of message. Abort and go back to idle.
+      case mod_rtu_tx_state_idle:
+      case mod_rtu_tx_state_reception:
+      return_to_idle(me);
+      break;
+
+      default:
+      break;
+    }
     break;
 
     default:
@@ -335,8 +368,13 @@ void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_
     case mod_rtu_tx_state_idle:
     case mod_rtu_tx_state_reception:
     if (type == mod_rtu_tx_timer_type_t15) {
+      //event timing is a little funny with use of DMA
+      //in case of garbage single character message,
+      //go directly to ctrl_wait from idle if we get t15
+      //before rx_done
       NRF_LOG_DEBUG("t15 in idle/reception");
       me->state = mod_rtu_tx_state_ctrl_wait;
+      nrf_drv_uart_rx_abort(&me->uart);
     }
     break;
 
@@ -346,15 +384,13 @@ void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_
       me->rx_35 = true;
       if (me->rx_done) {
         finish_rx(me);
-      } else {
-        nrf_drv_uart_rx_abort(&me->uart);
       }
     }
     NRF_LOG_DEBUG("timer expired in idle/reception");
     break;
 
     case mod_rtu_tx_state_emission:
-    NRF_LOG_WARNING("timer expired in idle");
+    NRF_LOG_WARNING("Timer expired in emission. Ignoring.");
     break;
   }
 }
@@ -371,8 +407,6 @@ static void timer_event_handler(nrf_timer_event_t event, void * p_context) {
     case NRF_TIMER_EVENT_COMPARE1: //t3.5
     NRF_LOG_INFO("timer3.5");
     mod_rtu_tx_timer_expired_callback((mod_rtu_tx_t *)p_context, mod_rtu_tx_timer_type_t35);
-    nrf_drv_timer_pause(&me->timer);
-    nrf_drv_timer_clear(&me->timer);
     break;
 
     default:

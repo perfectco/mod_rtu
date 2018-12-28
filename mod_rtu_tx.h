@@ -6,6 +6,7 @@
 #include "nrf_drv_uart.h"
 #include "nrf_drv_timer.h"
 #include "app_timer.h" //todo: need higher resolution
+#include "nrf_drv_ppi.h"
 
 typedef enum mod_rtu_tx_state_e {
   mod_rtu_tx_state_init, //initial state, waiting for expiration of t35
@@ -28,6 +29,7 @@ typedef struct mod_rtu_tx_s {
   nrf_drv_timer_t timer;
   uint32_t tx_en_pin;
   uint32_t rx_en_pin;
+  nrf_ppi_channel_group_t ppi_group;
 } mod_rtu_tx_t;
 
 typedef enum mod_rtu_tx_event_type_e {
