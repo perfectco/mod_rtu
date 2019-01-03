@@ -67,6 +67,7 @@ typedef struct mod_rtu_tx_s {
   uint32_t rx_en_pin;
   nrf_ppi_channel_group_t ppi_group;
   mod_rtu_tx_event_callback_t callback;
+  void * callback_context;
 } mod_rtu_tx_t;
 
 typedef enum mod_rtu_tx_timer_type_e {
@@ -76,6 +77,7 @@ typedef enum mod_rtu_tx_timer_type_e {
 
 typedef struct mod_rtu_tx_init_s {
   mod_rtu_tx_event_callback_t callback;
+  void * callback_context;
 } mod_rtu_tx_init_t;
 
 typedef enum mod_rtu_tx_serial_event_e {

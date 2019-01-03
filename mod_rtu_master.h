@@ -26,5 +26,6 @@ typedef struct mod_rtu_master_s {
 } mod_rtu_master_t;
 
 mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_master_init_t *const init);
+mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t coil_start_addr, const uint16_t count);
 
 #endif

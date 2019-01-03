@@ -3,7 +3,7 @@
 #include "nrf_drv_uart.h"
 
 #include "boards.h"
-#define NRF_LOG_MODULE_NAME mod_rtu
+#define NRF_LOG_MODULE_NAME mod_rtu_tx
 #define NRF_LOG_LEVEL 4
 #include "nrf_log.h"
 NRF_LOG_MODULE_REGISTER();
@@ -310,7 +310,11 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
         //could also get rx_done if buffer fills up, so ignore and restart if no timer flag
         me->rx_done = true;
         if (me->rx_35) {
+          NRF_LOG_DEBUG("init --> idle");
           return_to_idle(me);
+          if (me->callback) {
+            me->callback(mod_rtu_tx_event_ready, me->callback_context);
+          }
         } else {
           start_t35_for_init(me);
         }
@@ -368,6 +372,7 @@ mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me, const mod_rtu_tx_init_t 
 
   //save callback from init
   me->callback = init->callback;
+  me->callback_context = init->callback_context;
 
   //timer_init
   const mod_rtu_tx_timer_nrf52_config_t timer_config = {
