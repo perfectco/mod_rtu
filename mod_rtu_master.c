@@ -22,6 +22,10 @@ void mod_rtu_encode_int16 (const int16_t value, uint8_t *const target) {
     target[1] = value & 0xff;
 }
 
+bool in_range_uint16(const uint16_t val, const uint16_t min, const uint16_t max) {
+    return val >= min && val <= max;
+}
+
 static void rtu_tx_callback(const mod_rtu_tx_event_t * const event, void *const context) {
     mod_rtu_master_t *const me = context;
     if (me->state == mod_rtu_master_wait_reply) {
@@ -49,7 +53,7 @@ static void rtu_tx_callback(const mod_rtu_tx_event_t * const event, void *const 
             NRF_LOG_DEBUG("got tx ready");
             me->state = mod_rtu_master_state_idle;
             //todo: testing
-            mod_rtu_master_read_coils(me, 1, 0, 2000);
+            mod_rtu_master_read_holding_registers(me, 1, 0, 1);
             break;
 
             default:
@@ -132,7 +136,7 @@ static mod_rtu_error_t master_request_execute(mod_rtu_master_t *const me, mod_rt
     return err;
 }
 
-mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t coil_start_addr, const uint16_t count) {
+mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count) {
     NRF_LOG_DEBUG("read coils");
     mod_rtu_msg_t msg;
     const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
@@ -141,11 +145,46 @@ mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint
         return setup_err;
     }
 
+    if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_READ_COILS_MIN_ADDR, MOD_RTU_FUNCTION_READ_COILS_MAX_ADDR)) {
+        return mod_rtu_error_parameter;
+    }
+
+    if (!in_range_uint16(count, MOD_RTU_FUNCTION_READ_COILS_MIN_COUNT, MOD_RTU_FUNCTION_READ_COILS_MAX_COUNT)) {
+        return mod_rtu_error_parameter;
+    }
+
     msg.function = MOD_RTU_FUNCTION_READ_COILS_CODE;
     msg.data_length = MOD_RTU_FUNCTION_READ_COILS_REQUEST_LENGTH;
 
     //read coils request consists of address and count
-    mod_rtu_encode_uint16(coil_start_addr, &msg.data[MOD_RTU_FUNCTION_READ_COILS_START_ADDR_OFFSET]);
+    mod_rtu_encode_uint16(start_addr, &msg.data[MOD_RTU_FUNCTION_READ_COILS_START_ADDR_OFFSET]);
+    mod_rtu_encode_uint16(count, &msg.data[MOD_RTU_FUNCTION_READ_COILS_COUNT_OFFSET]);
+
+    return master_request_execute(me, &msg);
+}
+
+mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count) {
+    NRF_LOG_DEBUG("read holding registers");
+    mod_rtu_msg_t msg;
+    const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
+
+    if (setup_err != mod_rtu_error_ok) {
+        return setup_err;
+    }
+
+    if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MIN_ADDR, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MAX_ADDR)) {
+        return mod_rtu_error_parameter;
+    }
+    
+    if (!in_range_uint16(count, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MIN_COUNT, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MAX_COUNT)) {
+        return mod_rtu_error_parameter;
+    }
+
+    msg.function = MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_CODE;
+    msg.data_length = MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_REQUEST_LENGTH;
+
+    //read coils request consists of address and count
+    mod_rtu_encode_uint16(start_addr, &msg.data[MOD_RTU_FUNCTION_READ_COILS_START_ADDR_OFFSET]);
     mod_rtu_encode_uint16(count, &msg.data[MOD_RTU_FUNCTION_READ_COILS_COUNT_OFFSET]);
 
     return master_request_execute(me, &msg);
