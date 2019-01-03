@@ -57,7 +57,7 @@
 #include "app_util.h"
 #include "boards.h"
 
-#include "mod_rtu_tx.h"
+#include "mod_rtu_master.h"
 
 /** @file
  * @defgroup nrf_serial_example main.c
@@ -91,10 +91,13 @@ int main(void)
     bsp_board_leds_init();
     bsp_board_buttons_init();
 
-    //nrf_gpio_pin_clear(MODBUS_RX_EN_PIN);
-    mod_rtu_tx_t mod_rtu_tx;
-    mod_rtu_tx_init(&mod_rtu_tx);
-    (void)mod_rtu_tx;
+    mod_rtu_master_init_t mod_init = {
+        .response_timeout_ms = 1000,
+    };
+    mod_rtu_master_t mod_rtu_master;
+
+    mod_rtu_master_init(&mod_rtu_master, &mod_init);
+
     bsp_board_leds_on();
 
     while (true)

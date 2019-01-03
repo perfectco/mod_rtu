@@ -38,6 +38,7 @@ static void set_rx_en(mod_rtu_tx_t * const me, const bool enable);
 static void set_tx_en(mod_rtu_tx_t * const me, const bool enable);
 
 static mod_rtu_error_t timer_init(mod_rtu_tx_t * const me, const mod_rtu_tx_timer_nrf52_config_t * const p_config) {
+  NRF_LOG_DEBUG("rtu timer_init");
   nrf_drv_timer_config_t timer_config = (nrf_drv_timer_config_t)NRF_DRV_TIMER_DEFAULT_CONFIG;
   timer_config.p_context = me;
 
@@ -72,8 +73,6 @@ static mod_rtu_error_t timer_init(mod_rtu_tx_t * const me, const mod_rtu_tx_time
     return mod_rtu_error_unknown;
   }
 
-  nrf_drv_timer_enable(&me->timer);
-
   //setup compare register for T1.5
   const uint32_t compare15 = nrf_drv_timer_us_to_ticks(&me->timer, T15_US);
   nrf_drv_timer_compare(&me->timer, 0, compare15, true);
@@ -82,10 +81,16 @@ static mod_rtu_error_t timer_init(mod_rtu_tx_t * const me, const mod_rtu_tx_time
   const uint32_t compare35 = nrf_drv_timer_us_to_ticks(&me->timer, T35_US);
   nrf_drv_timer_extended_compare(&me->timer, 1, compare35, NRF_TIMER_SHORT_COMPARE1_STOP_MASK, true);
 
+  //enable timer, which also starts it, so stop and clear as well.
+  nrf_drv_timer_enable(&me->timer);
+  nrf_drv_timer_pause(&me->timer);
+  nrf_drv_timer_clear(&me->timer);
+
   return mod_rtu_error_ok;
 }
 
 static mod_rtu_error_t ppi_init(mod_rtu_tx_t *const me) {
+  NRF_LOG_DEBUG("rtu ppi_init");
   //set up ppi channel for uart rx to start/reset timer
   const uint32_t timer_start_addr = nrf_drv_timer_task_address_get(&me->timer, NRF_TIMER_TASK_START);
   const uint32_t timer_clear_addr = nrf_drv_timer_task_address_get(&me->timer, NRF_TIMER_TASK_CLEAR);
@@ -139,6 +144,7 @@ static mod_rtu_error_t ppi_init(mod_rtu_tx_t *const me) {
 static mod_rtu_error_t serial_init(mod_rtu_tx_t * const me,
                            const mod_rtu_tx_serial_nrf52_config_t * const p_config)
 {
+    NRF_LOG_DEBUG("rtu serial_init");
     ret_code_t ret;
     ASSERT(me && p_config);
 
@@ -211,27 +217,70 @@ static void set_tx_en(mod_rtu_tx_t * const me, const bool enable) {
   }
 }
 
+//configure system to receive first character in a message
+static void receive_first_character(mod_rtu_tx_t * const me) {
+  NRF_LOG_DEBUG("rtu receive_first_character");
+
+  //Disable ppi for first character. Will start manually.
+  ret_code_t ret = nrf_drv_ppi_group_disable(me->ppi_group);
+  //todo: error handling?
+  (void)ret;
+
+  //stop/clear timer
+  nrf_drv_timer_pause(&me->timer);
+  nrf_drv_timer_clear(&me->timer);
+
+  //set up flags for next message. No timeouts, presume good message
+  me->rx_msg_ok = true; //assume ok until we get an error
+  me->rx_done = false;
+  me->rx_35 = false;
+
+  //configure rx and tx enables for receive
+  set_tx_en(me, false);
+  set_rx_en(me, true);
+
+  //enable receive for first character
+  nrf_drv_uart_rx(&me->uart, me->rx_raw_msg.data, 1);
+}
+
+static void receive_rest_of_message(mod_rtu_tx_t * const me) {
+  NRF_LOG_DEBUG("rtu receive_rest_of_message");
+
+  //enable uart->timer reset ppi group
+  ret_code_t ret = nrf_drv_ppi_group_enable(me->ppi_group);
+  //todo: error handling?
+  (void)ret;
+
+  //in case of single byte frame, start timer manually as well.
+  nrf_drv_timer_resume(&me->timer);
+
+  //enable reception of remaining bytes
+  nrf_drv_uart_rx(&me->uart, me->rx_raw_msg.data + 1, 255);
+}
+
+static void start_t35_for_init(mod_rtu_tx_t * const me) {
+  NRF_LOG_DEBUG("rtu start_t35_for_init");
+  nrf_drv_timer_pause(&me->timer);
+  nrf_drv_timer_clear(&me->timer);
+
+  //configure for receive
+  set_tx_en(me, false);
+  set_rx_en(me, true);
+
+  //enable receive so rx events will happen
+  receive_rest_of_message(me);
+}
+
 static void return_to_idle(mod_rtu_tx_t * const me) {
   //process message here!
   NRF_LOG_DEBUG("return to idle");
   me->state = mod_rtu_tx_state_idle;
-  me->rx_msg_ok = true; //assume ok until we get an error
-  me->rx_done = false;
-  me->rx_35 = false;
-  set_tx_en(me, false);
-  set_rx_en(me, true);
-  //enable reception of only 1st character so we get an interrupt
-  nrf_drv_uart_rx(&me->uart, me->rx_raw_msg.data, 1);
-  //todo: error handling?
-  nrf_drv_timer_pause(&me->timer);
-  ret_code_t ret = nrf_drv_ppi_group_disable(me->ppi_group);
-  (void)ret;
+  receive_first_character(me);
 }
 
 static void finish_rx(mod_rtu_tx_t * const me) {
   me->state = mod_rtu_tx_state_ctrl_wait; //in case we weren't already there
   //todo process the just-received messaged and send to callback
-  return_to_idle(me);
   NRF_LOG_INFO("got message, %d bytes", me->rx_raw_msg.data_length);
   char msgout[me->rx_raw_msg.data_length*2+1];
   int idx = 0;
@@ -240,10 +289,11 @@ static void finish_rx(mod_rtu_tx_t * const me) {
   }
   msgout[me->rx_raw_msg.data_length * 2] = 0;
   NRF_LOG_DEBUG("msg: %s", msgout);
+  return_to_idle(me);
 }
 
 static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_context) {
-  NRF_LOG_INFO("serial event, %d", p_event->type);
+  NRF_LOG_DEBUG("serial event, %d", p_event->type);
   mod_rtu_tx_t *const me = p_context;
   switch (p_event->type) {
     case NRF_DRV_UART_EVT_TX_DONE: {
@@ -255,22 +305,24 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
     break;
 
     case NRF_DRV_UART_EVT_RX_DONE: {
-      if (me->state == mod_rtu_tx_state_idle) {
+      if (me->state == mod_rtu_tx_state_init) {
+        //rx_abort is triggered by timer, transition to idle on rx_done received
+        //could also get rx_done if buffer fills up, so ignore and restart if no timer flag
+        me->rx_done = true;
+        if (me->rx_35) {
+          return_to_idle(me);
+        } else {
+          start_t35_for_init(me);
+        }
+      } else if (me->state == mod_rtu_tx_state_idle) {
+        NRF_LOG_DEBUG("**1st byte**");
         //got first byte
         //start of reception, re-enable rx for remainder of message
-        nrf_drv_uart_rx(&me->uart, me->rx_raw_msg.data + 1, 255);
         me->state = mod_rtu_tx_state_reception;
-        //enable timeout for subsequent bytes
-        //ppi group lets serial reset timer
-        ret_code_t ret = nrf_drv_ppi_group_enable(me->ppi_group);
-        //todo: error handling?
-        (void)ret;
-        //start timeout for next byte
-        nrf_drv_timer_clear(&me->timer);
-        nrf_drv_timer_resume(&me->timer);
+        receive_rest_of_message(me);
       } else if (me->state == mod_rtu_tx_state_reception ||
                  me->state == mod_rtu_tx_state_ctrl_wait) {
-        //we might get xre_done in reception if the buffer fills up
+        //we might get rx_done in reception if the buffer fills up
         //set message length for later processing, include the additional first byte we received
         me->rx_raw_msg.data_length = p_event->data.rxtx.bytes + 1;
         me->rx_done = true;
@@ -280,6 +332,8 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
         } else {
           me->state = mod_rtu_tx_state_ctrl_wait;
         }
+      }
+      else {
       }
     }
     break;
@@ -305,9 +359,15 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
   }
 }
 
-mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me) {
+mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me, const mod_rtu_tx_init_t * const init) {
+  //start with all fields set to 0/null
   *me = (mod_rtu_tx_t){0};
+
+  //initial state is init. Will start timer and wait for t35 timeout.
   me->state = mod_rtu_tx_state_init;
+
+  //save callback from init
+  me->callback = init->callback;
 
   //timer_init
   const mod_rtu_tx_timer_nrf52_config_t timer_config = {
@@ -330,6 +390,9 @@ mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me) {
   me->serial_init = true;
 
   ppi_init(me);
+
+  //enable serial receive and start timer to transition to idle
+  start_t35_for_init(me);
 
   return mod_rtu_error_ok;
 }
@@ -361,11 +424,16 @@ mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_msg_t *con
 }
 
 void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_timer_type_t type) {
+  NRF_LOG_INFO("rtu timer callback, %d", type);
   switch (me->state) {
     case mod_rtu_tx_state_init:
     if (type == mod_rtu_tx_timer_type_t35) {
-      NRF_LOG_INFO("init --> idle");
-      return_to_idle(me);
+      me->rx_35 = true;
+      if (me->rx_done) {
+        return_to_idle(me);
+      } else {
+        nrf_drv_uart_rx_abort(&me->uart);
+      }
 
       //todo: testing
       mod_rtu_msg_t msg;
@@ -374,7 +442,7 @@ void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_
       msg.address = 1;
       msg.function = 1;
 
-      mod_rtu_tx_send(me, &msg);
+      //mod_rtu_tx_send(me, &msg);
     }
     break;
 
@@ -392,6 +460,7 @@ void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_
     break;
 
     case mod_rtu_tx_state_ctrl_wait:
+    NRF_LOG_DEBUG("timer expired in ctrl_wait");
     if (type == mod_rtu_tx_timer_type_t35) {
       NRF_LOG_DEBUG("timer35 in ctrl_wait");
       me->rx_35 = true;
@@ -399,7 +468,6 @@ void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_
         finish_rx(me);
       }
     }
-    NRF_LOG_DEBUG("timer expired in idle/reception");
     break;
 
     case mod_rtu_tx_state_emission:

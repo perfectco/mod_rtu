@@ -24,6 +24,33 @@ typedef enum mod_rtu_tx_state_e {
   mod_rtu_tx_state_ctrl_wait,
 } mod_rtu_tx_state_t;
 
+typedef enum mod_rtu_tx_event_type_e {
+  mod_rtu_tx_event_ready, //transitioned from init state to idle
+  mod_rtu_tx_event_msg_rx, //got a new message
+  mod_rtu_tx_event_msg_rx_error, //error while receving
+  mod_rtu_tx_event_tx_done, //done sending
+} mod_rtu_tx_event_type_t;
+
+//data for msg_rx_event or msg_rx_error events
+typedef struct mod_rtu_tx_msg_received_data_s {
+  const mod_rtu_msg_t *msg;
+} mod_rtu_tx_msg_received_data_t;
+
+typedef struct mod_rtu_tx_ready_data_s {
+  int dummy;
+} mod_rtu_tx_ready_data_t;
+
+typedef struct mod_rtu_tx_event_s {
+  mod_rtu_tx_event_type_t type;
+  mod_rtu_error_t error;
+  union {
+    mod_rtu_tx_msg_received_data_t msg_received;
+    mod_rtu_tx_ready_data_t ready;
+  };
+} mod_rtu_tx_event_t;
+
+typedef void (*mod_rtu_tx_event_callback_t)(const mod_rtu_tx_event_t * const event, void *const context);
+
 typedef struct mod_rtu_tx_s {
   mod_rtu_tx_state_t state;
   mod_rtu_tx_raw_msg_t tx_raw_msg; //current/last outgoing message
@@ -39,40 +66,21 @@ typedef struct mod_rtu_tx_s {
   uint32_t tx_en_pin;
   uint32_t rx_en_pin;
   nrf_ppi_channel_group_t ppi_group;
-  bool master_mode; //true if in master mode, false for slave mode
-  uint8_t own_addr; //if in slave mode, our address
+  mod_rtu_tx_event_callback_t callback;
 } mod_rtu_tx_t;
-
-typedef enum mod_rtu_tx_event_type_e {
-  mod_rtu_tx_event_ready, //transitioned from init state to idle
-  mod_rtu_tx_event_msg_rx, //got a new message
-  mod_rtu_tx_event_rx_error, //error while receving
-  mod_rtu_tx_event_tx_done, //done sending
-} mod_rtu_tx_event_type_t;
-
-//data for msg_rx_event
-typedef struct mod_rtu_tx_msg_received_data_s {
-  const mod_rtu_msg_t *msg;
-} mod_rtu_tx_msg_received_data_t;
-
-typedef struct mod_rtu_tx_ready_data_s {
-} mod_rtu_tx_ready_data_t;
-
-typedef struct mod_rtu_tx_event_s {
-  mod_rtu_tx_event_type_t type;
-  mod_rtu_error_t error;
-  union {
-    mod_rtu_tx_msg_received_data_t msg_received;
-    mod_rtu_tx_ready_data_t ready;
-  };
-} mod_rtu_tx_event_t;
 
 typedef enum mod_rtu_tx_timer_type_e {
   mod_rtu_tx_timer_type_t15, //inter-character timeout, reception to control trigger
   mod_rtu_tx_timer_type_t35, //inter-message timeout, control to idle trigger
 } mod_rtu_tx_timer_type_t;
 
-typedef void (*mod_rtu_tx_event_callback_t)(const mod_rtu_tx_event_t * const event, void *const context);
+typedef struct mod_rtu_tx_init_s {
+  mod_rtu_tx_event_callback_t callback;
+} mod_rtu_tx_init_t;
+
+typedef enum mod_rtu_tx_serial_event_e {
+  mod_rtu_tx_serial_event_rx, //received some characters
+} mod_rtu_tx_serial_event_t;
 
 /*
 timer callback
@@ -82,16 +90,16 @@ Upon expiration of the t15 timer, call mod_rtu_tx_timer_expired_callback_t with 
 and upon t35 expiration, with type = mod_rtu_tx_timer_type_t35
 */
 void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_timer_type_t type);
+void mod_rtu_serial_event_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_serial_event_t * const event);
 
 /*
 Initialize mod_rtu_tx instance
 */
-mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me);
+mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me, const mod_rtu_tx_init_t *const init);
 
 /*
 Send a modbus RTU message
 */
 mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_msg_t *const msg);
-
 
 #endif
