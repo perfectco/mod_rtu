@@ -29,13 +29,14 @@ static void rtu_tx_callback(const mod_rtu_tx_event_t * const event, void *const 
             case mod_rtu_tx_event_msg_rx:
             //received a valid reply
             //todo: do something with that reply
-            NRF_LOG_DEBUG("got reply");
+            if (event->error != mod_rtu_error_ok) {
+                NRF_LOG_DEBUG("got reply with error");
+            } else {
+                NRF_LOG_DEBUG("got reply");
+            }
+            mod_rtu_reply_timer_stop(&me->timer);
 
-            break;
-
-            case mod_rtu_tx_event_msg_rx_error:
-            NRF_LOG_DEBUG("got reply with error");
-            //todo: retry?
+            me->state = mod_rtu_master_state_idle;
             break;
 
             default:
@@ -94,7 +95,7 @@ mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_ma
     if (timer_error != mod_rtu_error_ok) {
         return timer_error;
     }
-    
+
     //todo: most settings hard-coded into rtu_tx, no hardware abstraction to speak of
     return mod_rtu_tx_init(&me->rtu_tx, &tx_init);
 }
@@ -118,9 +119,11 @@ static mod_rtu_error_t master_request_start(mod_rtu_master_t *const me, const ui
 }
 
 static mod_rtu_error_t master_request_execute(mod_rtu_master_t *const me, mod_rtu_msg_t *const msg) {
+    NRF_LOG_DEBUG("execute");
     const mod_rtu_error_t err = mod_rtu_tx_send(&me->rtu_tx, msg);
 
     if (err == mod_rtu_error_ok) {
+        NRF_LOG_DEBUG("starting timers");
         me->state = mod_rtu_master_wait_reply;
         mod_rtu_reply_timer_start(&me->timer);
         return mod_rtu_error_ok;
@@ -130,6 +133,7 @@ static mod_rtu_error_t master_request_execute(mod_rtu_master_t *const me, mod_rt
 }
 
 mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t coil_start_addr, const uint16_t count) {
+    NRF_LOG_DEBUG("read coils");
     mod_rtu_msg_t msg;
     const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
 

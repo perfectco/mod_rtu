@@ -27,7 +27,6 @@ typedef enum mod_rtu_tx_state_e {
 typedef enum mod_rtu_tx_event_type_e {
   mod_rtu_tx_event_ready, //transitioned from init state to idle
   mod_rtu_tx_event_msg_rx, //got a new message
-  mod_rtu_tx_event_msg_rx_error, //error while receving
   mod_rtu_tx_event_tx_done, //done sending
 } mod_rtu_tx_event_type_t;
 
@@ -36,16 +35,11 @@ typedef struct mod_rtu_tx_msg_received_data_s {
   const mod_rtu_msg_t *msg;
 } mod_rtu_tx_msg_received_data_t;
 
-typedef struct mod_rtu_tx_ready_data_s {
-  int dummy;
-} mod_rtu_tx_ready_data_t;
-
 typedef struct mod_rtu_tx_event_s {
   mod_rtu_tx_event_type_t type;
   mod_rtu_error_t error;
   union {
     mod_rtu_tx_msg_received_data_t msg_received;
-    mod_rtu_tx_ready_data_t ready;
   };
 } mod_rtu_tx_event_t;
 

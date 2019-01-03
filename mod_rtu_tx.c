@@ -272,10 +272,33 @@ static void start_t35_for_init(mod_rtu_tx_t * const me) {
 }
 
 static void return_to_idle(mod_rtu_tx_t * const me) {
-  //process message here!
   NRF_LOG_DEBUG("return to idle");
   me->state = mod_rtu_tx_state_idle;
   receive_first_character(me);
+}
+
+static mod_rtu_error_t process_rx_message(mod_rtu_tx_raw_msg_t *const raw_msg, mod_rtu_msg_t *const out_msg) {
+  if (raw_msg->data_length < MOD_RTU_TX_FRAME_OVERHEAD) {
+    return mod_rtu_error_msg_frame;
+  }
+
+  //check crc
+  const uint16_t check_crc = usMBCRC16(raw_msg->data, raw_msg->data_length - MOD_RTU_CRC_LENGTH);
+  const uint16_t msg_crc = *(uint16_t *)(raw_msg->data + raw_msg->data_length - MOD_RTU_CRC_LENGTH);
+  if (check_crc != msg_crc) {
+    return mod_rtu_error_msg_crc;
+  }
+
+  //unpack message fields
+  out_msg->address = raw_msg->data[MOD_RTU_ADDR_OFFSET];
+  out_msg->function = raw_msg->data[MOD_RTU_FUNCTION_OFFSET];
+  out_msg->data_length = raw_msg->data_length - MOD_RTU_TX_FRAME_OVERHEAD;
+
+  NRF_LOG_DEBUG("msg: addr = %d, function = %d, data_len = %d", out_msg->address, out_msg->function, out_msg->data_length);
+
+  memcpy(out_msg->data, raw_msg->data + MOD_RTU_DATA_OFFSET, raw_msg->data_length - MOD_RTU_TX_FRAME_OVERHEAD);
+
+  return mod_rtu_error_ok;
 }
 
 static void finish_rx(mod_rtu_tx_t * const me) {
@@ -289,6 +312,20 @@ static void finish_rx(mod_rtu_tx_t * const me) {
   }
   msgout[me->rx_raw_msg.data_length * 2] = 0;
   NRF_LOG_DEBUG("msg: %s", msgout);
+
+  const mod_rtu_error_t msg_error = process_rx_message(&me->rx_raw_msg, &me->last_rx_msg);
+
+  const mod_rtu_tx_event_t event = {
+    .type = mod_rtu_tx_event_msg_rx,
+    .error = msg_error,
+    .msg_received = {&me->last_rx_msg},
+  };
+
+  if (me->callback) {
+    me->callback(&event, me->callback_context);
+  }
+
+  NRF_LOG_DEBUG("msg_error: %d", msg_error);
   return_to_idle(me);
 }
 
