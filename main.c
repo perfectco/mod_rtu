@@ -59,6 +59,8 @@
 
 #include "mod_rtu_master.h"
 
+#include <endian.h>
+
 /** @file
  * @defgroup nrf_serial_example main.c
  * @{
@@ -70,10 +72,27 @@
 #define OP_QUEUES_SIZE          3
 #define APP_TIMER_PRESCALER     NRF_SERIAL_APP_TIMER_PRESCALER
 
+#define SCAN_ADDRESS 0x31C5
+#define SCAN_LENGTH 4 //words
 
+static uint16_t last_scan_val[SCAN_LENGTH] = {0};
+
+static mod_rtu_master_t mod_rtu_master;
 
 static void poll_timer_callback (void * context) {
-    
+    NRF_LOG_INFO("poll timer");
+    mod_rtu_master_read_holding_registers(&mod_rtu_master, 1, SCAN_ADDRESS, SCAN_LENGTH);
+}
+
+void mod_callback(const mod_rtu_master_event_t *const event, void *const context) {
+    if (event->type == mod_rtu_master_event_response) {
+        NRF_LOG_INFO("response");
+
+        for (int i = 0; i < SCAN_LENGTH; i+=1) {
+            last_scan_val[i] = ((uint16_t *)event->msg_received.msg->data)[i];
+        }
+    }
+}
 
 
 int main(void)
@@ -99,10 +118,18 @@ int main(void)
 
     mod_rtu_master_init_t mod_init = {
         .response_timeout_ms = 1000,
+        .callback = mod_callback,
+        .callback_context = 0,
     };
-    mod_rtu_master_t mod_rtu_master;
 
     mod_rtu_master_init(&mod_rtu_master, &mod_init);
+
+    app_timer_t poll_timer;
+    app_timer_t *temp = &poll_timer;
+
+    NRF_LOG_INFO("creating timer");
+    app_timer_create(&temp, APP_TIMER_MODE_REPEATED, poll_timer_callback);
+    app_timer_start(&poll_timer, APP_TIMER_TICKS(1000), 0);
 
     bsp_board_leds_on();
 

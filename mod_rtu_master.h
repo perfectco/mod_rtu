@@ -8,6 +8,7 @@
 typedef enum mod_rtu_master_event_type_e {
   mod_rtu_master_event_ready, //transitioned from init state to idle
   mod_rtu_master_event_response, //got a new message
+  mod_rtu_master_event_response_timeout,
 } mod_rtu_master_event_type_t;
 
 //data for msg_rx_event or msg_rx_error events

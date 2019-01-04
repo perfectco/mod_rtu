@@ -103,6 +103,19 @@ mod_rtu_error_t mod_rtu_address_validate(const uint8_t address) {
 
 void reply_timer_callback(void * context) {
     NRF_LOG_DEBUG("timer callback");
+    mod_rtu_master_t *const me = context;
+    if (me->state == mod_rtu_master_wait_reply) {
+        NRF_LOG_DEBUG("timeout");
+        //todo: send timeout event so app can retry, if desired
+        mod_rtu_master_event_t event = {
+            .type = mod_rtu_master_event_response_timeout,
+            .error = mod_rtu_error_timeout,
+        };
+        if (me->callback) {
+            me->callback(&event, me->callback_context);
+        }
+        me->state = mod_rtu_master_state_idle;
+    }
 }
 
 /*
