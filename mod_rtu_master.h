@@ -5,8 +5,30 @@
 #include "mod_rtu_tx.h"
 #include "mod_rtu_reply_timer.h"
 
+typedef enum mod_rtu_master_event_type_e {
+  mod_rtu_master_event_ready, //transitioned from init state to idle
+  mod_rtu_master_event_response, //got a new message
+} mod_rtu_master_event_type_t;
+
+//data for msg_rx_event or msg_rx_error events
+typedef struct mod_rtu_master_response_data_s {
+  const mod_rtu_msg_t *msg;
+} mod_rtu_master_response_data_t;
+
+typedef struct mod_rtu_master_event_s {
+  mod_rtu_master_event_type_t type;
+  mod_rtu_error_t error;
+  union {
+    mod_rtu_master_response_data_t msg_received;
+  };
+} mod_rtu_master_event_t;
+
+typedef void (* mod_rtu_master_callback_t)(const mod_rtu_master_event_t *const event, void *const context);
+
 typedef struct mod_rtu_master_init_s {
   uint16_t response_timeout_ms;
+  mod_rtu_master_callback_t callback;
+  void * callback_context;
 } mod_rtu_master_init_t;
 
 typedef enum mod_rtu_master_state_e {
@@ -21,8 +43,8 @@ typedef struct mod_rtu_master_s {
   mod_rtu_tx_t rtu_tx; //serial port controller
   mod_rtu_reply_timer_t timer;
   mod_rtu_slave_addr_t expected_address;
-  uint8_t max_retry;
-  uint8_t retry_counter;
+  mod_rtu_master_callback_t callback;
+  void * callback_context;
 } mod_rtu_master_t;
 
 mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_master_init_t *const init);

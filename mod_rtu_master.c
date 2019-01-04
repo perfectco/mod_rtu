@@ -26,6 +26,29 @@ bool in_range_uint16(const uint16_t val, const uint16_t min, const uint16_t max)
     return val >= min && val <= max;
 }
 
+//call to process message response
+static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_event_t * const event) {
+    if (event->msg_received.msg->address != me->expected_address) {
+        NRF_LOG_DEBUG("unexpected slave address, ignoring");
+        return;
+    }
+
+    mod_rtu_master_event_t master_event = {
+        .type = mod_rtu_master_event_response,
+        .error = (event->msg_received.msg->function & 0x80) != 0 ? mod_rtu_error_msg_exception : mod_rtu_error_ok,
+        .msg_received = {
+            .msg = event->msg_received.msg,
+        },
+    };
+
+    if (me->callback) {
+        me->callback(&master_event, me->callback_context);
+    }
+
+    mod_rtu_reply_timer_stop(&me->timer);
+    me->state = mod_rtu_master_state_idle;
+}
+
 static void rtu_tx_callback(const mod_rtu_tx_event_t * const event, void *const context) {
     mod_rtu_master_t *const me = context;
     if (me->state == mod_rtu_master_wait_reply) {
@@ -34,13 +57,11 @@ static void rtu_tx_callback(const mod_rtu_tx_event_t * const event, void *const 
             //received a valid reply
             //todo: do something with that reply
             if (event->error != mod_rtu_error_ok) {
-                NRF_LOG_DEBUG("got reply with error");
+                NRF_LOG_DEBUG("got reply with error, ignoring");
             } else {
                 NRF_LOG_DEBUG("got reply");
+                process_received_msg(me, event);
             }
-            mod_rtu_reply_timer_stop(&me->timer);
-
-            me->state = mod_rtu_master_state_idle;
             break;
 
             default:
@@ -52,8 +73,13 @@ static void rtu_tx_callback(const mod_rtu_tx_event_t * const event, void *const 
             //todo: send ready event to our callback
             NRF_LOG_DEBUG("got tx ready");
             me->state = mod_rtu_master_state_idle;
-            //todo: testing
-            mod_rtu_master_read_holding_registers(me, 1, 0, 1);
+            if (me->callback) {
+                const mod_rtu_master_event_t event = {
+                    .type = mod_rtu_master_event_ready,
+                    .error = mod_rtu_error_ok,
+                };
+                me->callback(&event, me->callback_context);
+            }
             break;
 
             default:
@@ -84,6 +110,9 @@ Initialize modbus library
 */
 mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_master_init_t *const init) {
     me->state = mod_rtu_master_state_init;
+    me->callback = init->callback;
+    me->callback_context = init->callback_context;
+
     mod_rtu_tx_init_t tx_init = {
         .callback = rtu_tx_callback,
         .callback_context = me,
@@ -138,12 +167,6 @@ static mod_rtu_error_t master_request_execute(mod_rtu_master_t *const me, mod_rt
 
 mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count) {
     NRF_LOG_DEBUG("read coils");
-    mod_rtu_msg_t msg;
-    const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
-
-    if (setup_err != mod_rtu_error_ok) {
-        return setup_err;
-    }
 
     if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_READ_COILS_MIN_ADDR, MOD_RTU_FUNCTION_READ_COILS_MAX_ADDR)) {
         return mod_rtu_error_parameter;
@@ -151,6 +174,13 @@ mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint
 
     if (!in_range_uint16(count, MOD_RTU_FUNCTION_READ_COILS_MIN_COUNT, MOD_RTU_FUNCTION_READ_COILS_MAX_COUNT)) {
         return mod_rtu_error_parameter;
+    }
+
+    mod_rtu_msg_t msg;
+    const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
+
+    if (setup_err != mod_rtu_error_ok) {
+        return setup_err;
     }
 
     msg.function = MOD_RTU_FUNCTION_READ_COILS_CODE;
@@ -165,12 +195,6 @@ mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint
 
 mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count) {
     NRF_LOG_DEBUG("read holding registers");
-    mod_rtu_msg_t msg;
-    const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
-
-    if (setup_err != mod_rtu_error_ok) {
-        return setup_err;
-    }
 
     if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MIN_ADDR, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MAX_ADDR)) {
         return mod_rtu_error_parameter;
@@ -178,6 +202,13 @@ mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me
     
     if (!in_range_uint16(count, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MIN_COUNT, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MAX_COUNT)) {
         return mod_rtu_error_parameter;
+    }
+
+    mod_rtu_msg_t msg;
+    const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
+
+    if (setup_err != mod_rtu_error_ok) {
+        return setup_err;
     }
 
     msg.function = MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_CODE;

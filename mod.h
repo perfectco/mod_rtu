@@ -48,6 +48,7 @@ typedef enum mod_rtu_error_e {
   mod_rtu_error_invalid_address = 4,
   mod_rtu_error_msg_crc = 5,
   mod_rtu_error_msg_frame = 6,
+  mod_rtu_error_msg_exception = 7,
 } mod_rtu_error_t;
 
 #endif

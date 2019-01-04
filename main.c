@@ -70,6 +70,12 @@
 #define OP_QUEUES_SIZE          3
 #define APP_TIMER_PRESCALER     NRF_SERIAL_APP_TIMER_PRESCALER
 
+
+
+static void poll_timer_callback (void * context) {
+    
+
+
 int main(void)
 {
     ret_code_t ret;
