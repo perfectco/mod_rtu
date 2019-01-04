@@ -59,8 +59,7 @@
 
 #include "mod_rtu_master.h"
 
-#include <endian.h>
-
+#include <math.h>
 /** @file
  * @defgroup nrf_serial_example main.c
  * @{
@@ -75,25 +74,55 @@
 #define SCAN_ADDRESS 0x31C5
 #define SCAN_LENGTH 4 //words
 
+#define ETA_STEADY_MASK 0x0400
+#define ETA_REVERSE_MASK 0x8000
+#define ETA_ENABLED_MASK 0x0004
+#define ETA_ON_MASK 0x0002
+#define ETA_READY_MASK 0x0001
+
 static uint16_t last_scan_val[SCAN_LENGTH] = {0};
 
 static mod_rtu_master_t mod_rtu_master;
 
+typedef struct mixer_state_s {
+    bool running;
+    bool steady;
+    uint8_t speed;
+    int16_t rpm;
+} mixer_state_t;
+
+mixer_state_t mixer_state = {
+    .running = false,
+    .steady = false,
+    .speed = 0,
+    .rpm = 0,
+};
+
 static void poll_timer_callback (void * context) {
-    NRF_LOG_INFO("poll timer");
     mod_rtu_master_read_holding_registers(&mod_rtu_master, 1, SCAN_ADDRESS, SCAN_LENGTH);
 }
 
 void mod_callback(const mod_rtu_master_event_t *const event, void *const context) {
-    if (event->type == mod_rtu_master_event_response) {
-        NRF_LOG_INFO("response");
+    if (event->type == mod_rtu_master_event_read_holding_response && event->error == mod_rtu_error_ok) {
 
-        for (int i = 0; i < SCAN_LENGTH; i+=1) {
-            last_scan_val[i] = ((uint16_t *)event->msg_received.msg->data)[i];
+        for (int i = 0; i < event->read_holding_response.count; i+=1) {
+            last_scan_val[i] = event->read_holding_response.data[i];
         }
+        mixer_state.running = (last_scan_val[0] & ETA_ENABLED_MASK) != 0;
+        mixer_state.steady = (last_scan_val[0] & ETA_STEADY_MASK) != 0;
+        if (!mixer_state.running) {
+            mixer_state.speed = 0;
+            mixer_state.rpm = 0;
+        } else {
+            float rpm = fabs((int16_t)last_scan_val[1]);
+            mixer_state.speed = roundf((rpm - 184.51) / 111.35);
+            mixer_state.rpm = rpm;
+        }
+        NRF_LOG_DEBUG("%04x, %04x", last_scan_val[0], last_scan_val[1]);
+        NRF_LOG_INFO ("on: %s, steady: %s, speed: %d, rpm: %d", mixer_state.running ? "yes" : " no", mixer_state.steady ? "yes" : " no",
+                      mixer_state.speed, mixer_state.rpm);
     }
 }
-
 
 int main(void)
 {
@@ -129,7 +158,7 @@ int main(void)
 
     NRF_LOG_INFO("creating timer");
     app_timer_create(&temp, APP_TIMER_MODE_REPEATED, poll_timer_callback);
-    app_timer_start(&poll_timer, APP_TIMER_TICKS(1000), 0);
+    app_timer_start(&poll_timer, APP_TIMER_TICKS(200), 0);
 
     bsp_board_leds_on();
 

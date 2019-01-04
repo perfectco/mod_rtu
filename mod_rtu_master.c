@@ -7,7 +7,7 @@
 #include "mod_rtu_reply_timer.h"
 
 #define NRF_LOG_MODULE_NAME mod_rtu_master
-#define NRF_LOG_LEVEL 4
+#define NRF_LOG_LEVEL 3
 #include "nrf_log.h"
 NRF_LOG_MODULE_REGISTER();
 
@@ -33,16 +33,68 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
         return;
     }
 
+    const uint8_t original_type = event->msg_received.msg->function & 0x7F;
+    const bool exception = (event->msg_received.msg->function & 0x80) != 0;
+
     mod_rtu_master_event_t master_event = {
-        .type = mod_rtu_master_event_response,
-        .error = (event->msg_received.msg->function & 0x80) != 0 ? mod_rtu_error_msg_exception : mod_rtu_error_ok,
-        .msg_received = {
+        .type = mod_rtu_master_event_response, //preset as generic response
+        .error = exception ? mod_rtu_error_msg_exception : mod_rtu_error_ok,
+        .response = {
             .msg = event->msg_received.msg,
         },
     };
 
-    if (me->callback) {
-        me->callback(&master_event, me->callback_context);
+    //modify event for specific type, if possible
+    switch (original_type) {
+        case MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_CODE: {
+            master_event.type = mod_rtu_master_event_read_holding_response;
+            master_event.read_holding_response.start_address = me->last_start_address;
+            if (exception) {
+                master_event.read_holding_response.count = 0;
+                master_event.read_holding_response.data = NULL;
+                if (me->callback) {
+                    me->callback(&master_event, me->callback_context);
+                }
+            } else {
+                master_event.read_holding_response.count = event->msg_received.msg->data[0] / 2;
+                uint16_t data[master_event.read_holding_response.count];
+                master_event.read_holding_response.data = data;
+                memcpy (data, event->msg_received.msg->data + 1, master_event.read_holding_response.count * sizeof(data[0]));
+                for (int i = 0; i < master_event.read_holding_response.count; i += 1) {
+                    data[i] = (data[i] >> 8) + (data[i] << 8);
+                }
+                if (me->callback) {
+                    me->callback(&master_event, me->callback_context);
+                }
+            }
+        }
+        break;
+
+#if 0
+        case MOD_RTU_FUNCTION_READ_COILS_CODE: {
+            master_event.type = mod_rtu_master_event_read_coils_response;
+            master_event.read_coils_response.start_address = me->last_start_address;
+            master_event.read_coils_response.count = me->last_count;
+            bool data[master_event.read_coils_response.count];
+            master_event.read_coils_response.data = data;
+            //set boolean data from bits
+            for (int i = 0; i < master_event.read_coils_response.count; i += 1) {
+                data[i] = (event->msg_received.msg->data[i/8] & (1 << (i % 8))) != 0;
+            }
+
+            if (me->callback) {
+                me->callback(&master_event, me->callback_context);
+            }
+        }
+        break;
+#endif
+
+        default: {
+            if (me->callback) {
+                me->callback(&master_event, me->callback_context);
+            }
+        }
+        break;
     }
 
     mod_rtu_reply_timer_stop(&me->timer);
@@ -203,6 +255,9 @@ mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint
     mod_rtu_encode_uint16(start_addr, &msg.data[MOD_RTU_FUNCTION_READ_COILS_START_ADDR_OFFSET]);
     mod_rtu_encode_uint16(count, &msg.data[MOD_RTU_FUNCTION_READ_COILS_COUNT_OFFSET]);
 
+    me->last_start_address = start_addr;
+    me->last_count = count;
+
     return master_request_execute(me, &msg);
 }
 
@@ -230,6 +285,9 @@ mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me
     //read coils request consists of address and count
     mod_rtu_encode_uint16(start_addr, &msg.data[MOD_RTU_FUNCTION_READ_COILS_START_ADDR_OFFSET]);
     mod_rtu_encode_uint16(count, &msg.data[MOD_RTU_FUNCTION_READ_COILS_COUNT_OFFSET]);
+
+    me->last_start_address = start_addr;
+    me->last_count = count;
 
     return master_request_execute(me, &msg);
 }

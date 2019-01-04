@@ -5,22 +5,41 @@
 #include "mod_rtu_tx.h"
 #include "mod_rtu_reply_timer.h"
 
+//types of master events sent to callback
 typedef enum mod_rtu_master_event_type_e {
   mod_rtu_master_event_ready, //transitioned from init state to idle
   mod_rtu_master_event_response, //got a new message
   mod_rtu_master_event_response_timeout,
+  mod_rtu_master_event_read_holding_response,
+  mod_rtu_master_event_read_coils_response,
 } mod_rtu_master_event_type_t;
 
-//data for msg_rx_event or msg_rx_error events
+//Structs for various event types
+//Generic response type, just a pointer to the received message
 typedef struct mod_rtu_master_response_data_s {
   const mod_rtu_msg_t *msg;
 } mod_rtu_master_response_data_t;
+
+//
+typedef struct mod_rtu_master_read_holding_response_data_s {
+  uint16_t start_address;
+  uint16_t count;
+  uint16_t *data;
+} mod_rtu_master_read_holding_response_data_t;
+
+typedef struct mod_rtu_master_read_coils_response_data_s {
+  uint16_t start_address;
+  uint16_t count;
+  bool *data;
+} mod_rtu_master_read_coils_response_data_t;
 
 typedef struct mod_rtu_master_event_s {
   mod_rtu_master_event_type_t type;
   mod_rtu_error_t error;
   union {
-    mod_rtu_master_response_data_t msg_received;
+    mod_rtu_master_response_data_t response;
+    mod_rtu_master_read_holding_response_data_t read_holding_response;
+    mod_rtu_master_read_coils_response_data_t read_coils_response;
   };
 } mod_rtu_master_event_t;
 
@@ -46,6 +65,8 @@ typedef struct mod_rtu_master_s {
   mod_rtu_slave_addr_t expected_address;
   mod_rtu_master_callback_t callback;
   void * callback_context;
+  uint16_t last_start_address;
+  uint16_t last_count;
 } mod_rtu_master_t;
 
 mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_master_init_t *const init);

@@ -4,7 +4,7 @@
 
 #include "boards.h"
 #define NRF_LOG_MODULE_NAME mod_rtu_tx
-#define NRF_LOG_LEVEL 4
+#define NRF_LOG_LEVEL 3
 #include "nrf_log.h"
 NRF_LOG_MODULE_REGISTER();
 
@@ -304,7 +304,7 @@ static mod_rtu_error_t process_rx_message(mod_rtu_tx_raw_msg_t *const raw_msg, m
 static void finish_rx(mod_rtu_tx_t * const me) {
   me->state = mod_rtu_tx_state_ctrl_wait; //in case we weren't already there
   //todo process the just-received messaged and send to callback
-  NRF_LOG_INFO("got message, %d bytes", me->rx_raw_msg.data_length);
+  NRF_LOG_DEBUG("got message, %d bytes", me->rx_raw_msg.data_length);
   char msgout[me->rx_raw_msg.data_length*2+1];
   int idx = 0;
   for (idx = 0; idx < me->rx_raw_msg.data_length; idx++) {
@@ -335,7 +335,7 @@ static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_contex
   switch (p_event->type) {
     case NRF_DRV_UART_EVT_TX_DONE: {
       if (me->state == mod_rtu_tx_state_emission) {
-        NRF_LOG_INFO("tx done");
+        NRF_LOG_DEBUG("tx done");
         return_to_idle(me);
       }
     }
@@ -446,7 +446,7 @@ mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_msg_t *con
   me->state = mod_rtu_tx_state_emission;
   //this will cause a rx_done event, but it will be ignored
   nrf_drv_uart_rx_abort(&me->uart);
-  NRF_LOG_INFO("sending");
+  NRF_LOG_DEBUG("sending");
 
   //pack message into raw buffer and calculate crc
   me->tx_raw_msg.data[MOD_RTU_ADDR_OFFSET] = msg->address;
@@ -466,7 +466,7 @@ mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_msg_t *con
 }
 
 void mod_rtu_tx_timer_expired_callback(mod_rtu_tx_t *const me, const mod_rtu_tx_timer_type_t type) {
-  NRF_LOG_INFO("rtu timer callback, %d", type);
+  NRF_LOG_DEBUG("rtu timer callback, %d", type);
   switch (me->state) {
     case mod_rtu_tx_state_init:
     if (type == mod_rtu_tx_timer_type_t35) {
@@ -523,12 +523,12 @@ static void timer_event_handler(nrf_timer_event_t event, void * p_context) {
   (void)me;
   switch (event) {
     case NRF_TIMER_EVENT_COMPARE0: //t1.5
-    NRF_LOG_INFO("timer1.5");
+    NRF_LOG_DEBUG("timer1.5");
     mod_rtu_tx_timer_expired_callback((mod_rtu_tx_t *)p_context, mod_rtu_tx_timer_type_t15);
     break;
 
     case NRF_TIMER_EVENT_COMPARE1: //t3.5
-    NRF_LOG_INFO("timer3.5");
+    NRF_LOG_DEBUG("timer3.5");
     mod_rtu_tx_timer_expired_callback((mod_rtu_tx_t *)p_context, mod_rtu_tx_timer_type_t35);
     break;
 
