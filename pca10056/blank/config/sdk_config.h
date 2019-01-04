@@ -1792,7 +1792,7 @@
 // <4=> Debug 
 
 #ifndef TIMER_CONFIG_LOG_LEVEL
-#define TIMER_CONFIG_LOG_LEVEL 4
+#define TIMER_CONFIG_LOG_LEVEL 2
 #endif
 
 // <o> TIMER_CONFIG_INFO_COLOR  - ANSI escape code prefix.
