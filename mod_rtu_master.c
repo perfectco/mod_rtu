@@ -17,6 +17,10 @@ void mod_rtu_encode_uint16 (const uint16_t value, uint8_t *const target) {
     target[1] = value & 0xff;
 }
 
+uint16_t mod_rtu_decode_uint16 (const uint8_t *const source) {
+    return (source[0] << 8) + source[1];
+}
+
 void mod_rtu_encode_int16 (const int16_t value, uint8_t *const target) {
     target[0] = (value >> 8) & 0xff;
     target[1] = value & 0xff;
@@ -45,6 +49,11 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
     };
 
     //modify event for specific type, if possible
+    const mod_rtu_master_callback_t cb = me->temp_callback ? me->temp_callback : (me->callback ? me->callback : NULL);
+    void * const context = me->temp_callback ? me->temp_callback_context : (me->callback ? me->callback_context : NULL);
+    me->temp_callback = NULL;
+    me->temp_callback_context = NULL;
+
     switch (original_type) {
         case MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_CODE: {
             master_event.type = mod_rtu_master_event_read_holding_response;
@@ -52,8 +61,8 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
             if (exception) {
                 master_event.read_holding_response.count = 0;
                 master_event.read_holding_response.data = NULL;
-                if (me->callback) {
-                    me->callback(&master_event, me->callback_context);
+                if (cb) {
+                    cb(&master_event, context);
                 }
             } else {
                 master_event.read_holding_response.count = event->msg_received.msg->data[0] / 2;
@@ -63,8 +72,40 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
                 for (int i = 0; i < master_event.read_holding_response.count; i += 1) {
                     data[i] = (data[i] >> 8) + (data[i] << 8);
                 }
-                if (me->callback) {
-                    me->callback(&master_event, me->callback_context);
+                if (cb) {
+                    cb(&master_event, context);
+                }
+            }
+        }
+        break;
+
+        case MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_CODE: {
+            master_event.type = mod_rtu_master_event_write_single_response;
+            if (exception) {
+                if (cb) {
+                    cb(&master_event, context);
+                }
+            } else {
+                master_event.write_single_response.address = mod_rtu_decode_uint16(&event->msg_received.msg->data[MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_ADDR_OFFSET]);
+                master_event.write_single_response.value = mod_rtu_decode_uint16(&event->msg_received.msg->data[MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_VALUE_OFFSET]);
+                if (cb) {
+                    cb(&master_event, context);
+                }
+            }
+        }
+        break;
+
+        case MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_CODE: {
+            master_event.type = mod_rtu_master_event_write_multiple_response;
+            if (exception) {
+                if (cb) {
+                    cb(&master_event, context);
+                }
+            } else {
+                master_event.write_multiple_response.start_address = mod_rtu_decode_uint16(&event->msg_received.msg->data[MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_START_ADDR_OFFSET]);
+                master_event.write_multiple_response.count = mod_rtu_decode_uint16(&event->msg_received.msg->data[MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_COUNT_OFFSET]);
+                if (cb) {
+                    cb(&master_event, context);
                 }
             }
         }
@@ -90,8 +131,8 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
 #endif
 
         default: {
-            if (me->callback) {
-                me->callback(&master_event, me->callback_context);
+            if (cb) {
+                cb(&master_event, context);
             }
         }
         break;
@@ -262,6 +303,10 @@ mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint
 }
 
 mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count) {
+    return mod_rtu_master_read_holding_registers_cb(me, device_addr, start_addr, count, NULL, NULL);
+}
+
+mod_rtu_error_t mod_rtu_master_read_holding_registers_cb(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count, const mod_rtu_master_callback_t cb, void *const context) {
     NRF_LOG_DEBUG("read holding registers");
 
     if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MIN_ADDR, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MAX_ADDR)) {
@@ -271,6 +316,9 @@ mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me
     if (!in_range_uint16(count, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MIN_COUNT, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MAX_COUNT)) {
         return mod_rtu_error_parameter;
     }
+
+    me->temp_callback = cb;
+    me->temp_callback_context = context;
 
     mod_rtu_msg_t msg;
     const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
@@ -286,6 +334,75 @@ mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me
     mod_rtu_encode_uint16(start_addr, &msg.data[MOD_RTU_FUNCTION_READ_COILS_START_ADDR_OFFSET]);
     mod_rtu_encode_uint16(count, &msg.data[MOD_RTU_FUNCTION_READ_COILS_COUNT_OFFSET]);
 
+    me->last_start_address = start_addr;
+    me->last_count = count;
+
+    return master_request_execute(me, &msg);
+}
+
+mod_rtu_error_t mod_rtu_master_write_single_register_cb(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t addr, const uint16_t data, const mod_rtu_master_callback_t cb, void *const context) {
+    NRF_LOG_DEBUG("write single register");
+
+    if (!in_range_uint16(addr, MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_MIN_ADDR, MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_MAX_ADDR)) {
+        return mod_rtu_error_parameter;
+    }
+    
+    me->temp_callback = cb;
+    me->temp_callback_context = context;
+
+    mod_rtu_msg_t msg;
+    const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
+
+    if (setup_err != mod_rtu_error_ok) {
+        return setup_err;
+    }
+
+    msg.function = MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_CODE;
+    msg.data_length = MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_REQUEST_LENGTH;
+
+    //read coils request consists of address and count
+    mod_rtu_encode_uint16(addr, &msg.data[MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_ADDR_OFFSET]);
+    mod_rtu_encode_uint16(data, &msg.data[MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_VALUE_OFFSET]);
+
+    me->last_start_address = addr;
+    me->last_count = 1;
+
+    return master_request_execute(me, &msg);
+}
+
+mod_rtu_error_t mod_rtu_master_write_multiple_registers_cb(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count, const uint16_t *const data, 
+                                                           const mod_rtu_master_callback_t cb, void *const context) {
+    NRF_LOG_DEBUG("write multiple registers");
+
+    if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_MIN_ADDR, MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_MAX_ADDR)) {
+        return mod_rtu_error_parameter;
+    }
+    
+    if (!in_range_uint16(count, MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_MIN_COUNT, MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_MAX_COUNT)) {
+        return mod_rtu_error_parameter;
+    }
+    
+    me->temp_callback = cb;
+    me->temp_callback_context = context;
+
+    mod_rtu_msg_t msg;
+    const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
+
+    if (setup_err != mod_rtu_error_ok) {
+        return setup_err;
+    }
+
+    msg.function = MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_CODE;
+    msg.data_length = MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_REQUEST_LENGTH;
+
+    //read coils request consists of address and count
+    mod_rtu_encode_uint16(start_addr, &msg.data[MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_START_ADDR_OFFSET]);
+    mod_rtu_encode_uint16(count, &msg.data[MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_COUNT_OFFSET]);
+    msg.data[MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_BYTE_COUNT_OFFSET] = 2 * count;
+    for (int i = 0; i < count; i += 1) {
+        mod_rtu_encode_uint16(data[i], &msg.data[MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_VALUES_OFFSET + i * 2]);
+    }
+    
     me->last_start_address = start_addr;
     me->last_count = count;
 
