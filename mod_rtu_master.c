@@ -225,7 +225,7 @@ mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_ma
     };
 
     mod_rtu_reply_timer_init_t timer_init = {
-        .timeout = 1000,
+        .timeout = init->response_timeout_ms,
         .callback = reply_timer_callback,
         .callback_context = me,
     };
