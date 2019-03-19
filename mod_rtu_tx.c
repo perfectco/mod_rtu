@@ -177,6 +177,7 @@ static mod_rtu_error_t serial_init(mod_rtu_tx_t * const me,
       .hwfc = NRF_UARTE_HWFC_DISABLED,
       .parity = p_config->parity,
       .baudrate = p_config->baudrate,
+      .stop = p_config->stop,
       .interrupt_priority = p_config->interrupt_priority,
       .use_easy_dma = true,
     };
