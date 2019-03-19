@@ -69,9 +69,24 @@ typedef enum mod_rtu_tx_timer_type_e {
   mod_rtu_tx_timer_type_t35, //inter-message timeout, control to idle trigger
 } mod_rtu_tx_timer_type_t;
 
+typedef struct mod_rtu_tx_serial_nrf52_config_s {
+  uint32_t tx_pin;
+  uint32_t rx_pin;
+  uint16_t tx_en_pin;
+  uint16_t rx_en_pin;
+#ifdef UARTE_IN_USE
+  nrf_uarte_stop_t stop;
+#endif
+  nrf_uart_parity_t parity;
+  nrf_uart_baudrate_t baudrate;
+  uint8_t interrupt_priority;
+  uint8_t uart_instance;
+} mod_rtu_tx_serial_nrf52_config_t;
+
 typedef struct mod_rtu_tx_init_s {
   mod_rtu_tx_event_callback_t callback;
   void * callback_context;
+  mod_rtu_tx_serial_nrf52_config_t serial_config;
 } mod_rtu_tx_init_t;
 
 typedef enum mod_rtu_tx_serial_event_e {

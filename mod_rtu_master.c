@@ -222,6 +222,17 @@ mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_ma
     mod_rtu_tx_init_t tx_init = {
         .callback = rtu_tx_callback,
         .callback_context = me,
+        .serial_config = {
+            .tx_pin = MODBUS_TX_PIN,
+            .rx_pin = MODBUS_RX_PIN,
+            .tx_en_pin = MODBUS_TX_EN_PIN,
+            .rx_en_pin = MODBUS_RX_EN_PIN,
+            .parity = NRF_UARTE_PARITY_EXCLUDED,
+            .baudrate = NRF_UARTE_BAUDRATE_19200,
+            .stop = NRF_UARTE_STOP_TWO,
+            .interrupt_priority = UART_DEFAULT_CONFIG_IRQ_PRIORITY,
+            .uart_instance = 1,
+        }
     };
 
     mod_rtu_reply_timer_init_t timer_init = {

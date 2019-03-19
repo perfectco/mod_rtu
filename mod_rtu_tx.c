@@ -2,9 +2,8 @@
 
 #include "nrf_drv_uart.h"
 
-#include "boards.h"
 #define NRF_LOG_MODULE_NAME mod_rtu_tx
-#define NRF_LOG_LEVEL 3
+#define NRF_LOG_LEVEL 4
 #include "nrf_log.h"
 NRF_LOG_MODULE_REGISTER();
 
@@ -16,17 +15,6 @@ NRF_LOG_MODULE_REGISTER();
 
 #define T15_US 1432
 #define T35_US 2578
-
-typedef struct mod_rtu_tx_serial_nrf52_config_s {
-  uint32_t tx_pin;
-  uint32_t rx_pin;
-  uint16_t tx_en_pin;
-  uint16_t rx_en_pin;
-  nrf_uart_parity_t parity;
-  nrf_uart_baudrate_t baudrate;
-  uint8_t interrupt_priority;
-  uint8_t uart_instance;
-} mod_rtu_tx_serial_nrf52_config_t;
 
 typedef struct mod_rtu_tx_timer_nrf52_config_s {
   uint8_t timer_instance;
@@ -419,17 +407,7 @@ mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me, const mod_rtu_tx_init_t 
 
   timer_init(me, &timer_config);
 
-  const mod_rtu_tx_serial_nrf52_config_t serial_config = {
-    .tx_pin = MODBUS_TX_PIN,
-    .rx_pin = MODBUS_RX_PIN,
-    .tx_en_pin = MODBUS_TX_EN_PIN,
-    .rx_en_pin = MODBUS_RX_EN_PIN,
-    .parity = NRF_UARTE_PARITY_INCLUDED,
-    .baudrate = NRF_UARTE_BAUDRATE_19200,
-    .interrupt_priority = UART_DEFAULT_CONFIG_IRQ_PRIORITY,
-    .uart_instance = 1,
-  };
-  serial_init(me, &serial_config);
+  serial_init(me, &init->serial_config);
   me->serial_init = true;
 
   ppi_init(me);
