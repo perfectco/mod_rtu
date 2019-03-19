@@ -89,7 +89,7 @@ mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_ma
 mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count);
 mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count);
 mod_rtu_error_t mod_rtu_master_read_holding_registers_cb(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count, const mod_rtu_master_callback_t cb, void *const context);
-mod_rtu_error_t mod_rtu_master_write_single_register(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t addr, const uint16_t data, const mod_rtu_master_callback_t cb, void *const context);
+mod_rtu_error_t mod_rtu_master_write_single_register_cb(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t addr, const uint16_t data, const mod_rtu_master_callback_t cb, void *const context);
 mod_rtu_error_t mod_rtu_master_write_multiple_registers(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count, const uint16_t *const data, const mod_rtu_master_callback_t cb, void *const context);
 
 #endif

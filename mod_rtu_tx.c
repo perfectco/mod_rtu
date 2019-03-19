@@ -2,8 +2,10 @@
 
 #include "nrf_drv_uart.h"
 
+#include "nrf_gpio.h"
+
 #define NRF_LOG_MODULE_NAME mod_rtu_tx
-#define NRF_LOG_LEVEL 4
+#define NRF_LOG_LEVEL 3
 #include "nrf_log.h"
 NRF_LOG_MODULE_REGISTER();
 
@@ -310,12 +312,12 @@ static void finish_rx(mod_rtu_tx_t * const me) {
     .msg_received = {&me->last_rx_msg},
   };
 
+  return_to_idle(me);
   if (me->callback) {
     me->callback(&event, me->callback_context);
   }
 
   NRF_LOG_DEBUG("msg_error: %d", msg_error);
-  return_to_idle(me);
 }
 
 static void serial_event_handler(nrf_drv_uart_event_t * p_event, void * p_context) {
@@ -419,7 +421,10 @@ mod_rtu_error_t mod_rtu_tx_init(mod_rtu_tx_t *const me, const mod_rtu_tx_init_t 
 }
 
 mod_rtu_error_t mod_rtu_tx_send(mod_rtu_tx_t *const me, const mod_rtu_msg_t *const msg) {
+      NRF_LOG_DEBUG("mod_rtu_tx_send");
+
   if (me->state != mod_rtu_tx_state_idle) {
+    NRF_LOG_DEBUG("  invalid state");
     return mod_rtu_error_invalid_state;
   }
   me->state = mod_rtu_tx_state_emission;

@@ -5,6 +5,7 @@
 #include "nrf_serial.h"
 #include "nrf_drv_timer.h"
 #include "mod_rtu_reply_timer.h"
+#include "boards.h"
 
 #define NRF_LOG_MODULE_NAME mod_rtu_master
 #define NRF_LOG_LEVEL 3
@@ -30,6 +31,24 @@ bool in_range_uint16(const uint16_t val, const uint16_t min, const uint16_t max)
     return val >= min && val <= max;
 }
 
+static void send_callback(mod_rtu_master_t *const me, mod_rtu_master_event_t *const event) {
+
+    if (me->temp_callback) {
+        mod_rtu_master_callback_t cb = me->temp_callback;
+        void * context = me->temp_callback_context;
+        me->temp_callback = NULL;
+        me->temp_callback_context = NULL;
+        NRF_LOG_DEBUG("temp callback");
+        cb(event, context);
+    } else if (me->callback) {
+        NRF_LOG_DEBUG("normal callback");
+        me->callback(event, me->callback_context);
+    } else {
+        NRF_LOG_DEBUG("no callback");
+    }
+
+}
+
 //call to process message response
 static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_event_t * const event) {
     if (event->msg_received.msg->address != me->expected_address) {
@@ -39,21 +58,17 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
 
     const uint8_t original_type = event->msg_received.msg->function & 0x7F;
     const bool exception = (event->msg_received.msg->function & 0x80) != 0;
+    NRF_LOG_DEBUG("  type: %d, exception: %d", original_type, exception);
 
     mod_rtu_master_event_t master_event = {
         .type = mod_rtu_master_event_response, //preset as generic response
-        .error = exception ? mod_rtu_error_msg_exception : mod_rtu_error_ok,
+        .error = exception ? mod_rtu_error_msg_exception : mod_rtu_error_ok, //todo: specific exceptions?
         .response = {
             .msg = event->msg_received.msg,
         },
     };
 
     //modify event for specific type, if possible
-    const mod_rtu_master_callback_t cb = me->temp_callback ? me->temp_callback : (me->callback ? me->callback : NULL);
-    void * const context = me->temp_callback ? me->temp_callback_context : (me->callback ? me->callback_context : NULL);
-    me->temp_callback = NULL;
-    me->temp_callback_context = NULL;
-
     switch (original_type) {
         case MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_CODE: {
             master_event.type = mod_rtu_master_event_read_holding_response;
@@ -61,9 +76,7 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
             if (exception) {
                 master_event.read_holding_response.count = 0;
                 master_event.read_holding_response.data = NULL;
-                if (cb) {
-                    cb(&master_event, context);
-                }
+                send_callback(me, &master_event);
             } else {
                 master_event.read_holding_response.count = event->msg_received.msg->data[0] / 2;
                 uint16_t data[master_event.read_holding_response.count];
@@ -72,25 +85,20 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
                 for (int i = 0; i < master_event.read_holding_response.count; i += 1) {
                     data[i] = (data[i] >> 8) + (data[i] << 8);
                 }
-                if (cb) {
-                    cb(&master_event, context);
-                }
+                send_callback(me, &master_event);
             }
         }
         break;
 
         case MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_CODE: {
+            
             master_event.type = mod_rtu_master_event_write_single_response;
             if (exception) {
-                if (cb) {
-                    cb(&master_event, context);
-                }
+                send_callback(me, &master_event);
             } else {
                 master_event.write_single_response.address = mod_rtu_decode_uint16(&event->msg_received.msg->data[MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_ADDR_OFFSET]);
                 master_event.write_single_response.value = mod_rtu_decode_uint16(&event->msg_received.msg->data[MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_VALUE_OFFSET]);
-                if (cb) {
-                    cb(&master_event, context);
-                }
+                send_callback(me, &master_event);
             }
         }
         break;
@@ -98,15 +106,11 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
         case MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_CODE: {
             master_event.type = mod_rtu_master_event_write_multiple_response;
             if (exception) {
-                if (cb) {
-                    cb(&master_event, context);
-                }
+                send_callback(me, &master_event);
             } else {
                 master_event.write_multiple_response.start_address = mod_rtu_decode_uint16(&event->msg_received.msg->data[MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_START_ADDR_OFFSET]);
                 master_event.write_multiple_response.count = mod_rtu_decode_uint16(&event->msg_received.msg->data[MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_COUNT_OFFSET]);
-                if (cb) {
-                    cb(&master_event, context);
-                }
+                send_callback(me, &master_event);
             }
         }
         break;
@@ -131,15 +135,10 @@ static void process_received_msg(mod_rtu_master_t *const me, const mod_rtu_tx_ev
 #endif
 
         default: {
-            if (cb) {
-                cb(&master_event, context);
-            }
+                send_callback(me, &master_event);
         }
         break;
     }
-
-    mod_rtu_reply_timer_stop(&me->timer);
-    me->state = mod_rtu_master_state_idle;
 }
 
 static void rtu_tx_callback(const mod_rtu_tx_event_t * const event, void *const context) {
@@ -152,6 +151,8 @@ static void rtu_tx_callback(const mod_rtu_tx_event_t * const event, void *const 
             if (event->error != mod_rtu_error_ok) {
                 NRF_LOG_DEBUG("got reply with error, ignoring");
             } else {
+                mod_rtu_reply_timer_stop(&me->timer);
+                me->state = mod_rtu_master_state_idle;
                 NRF_LOG_DEBUG("got reply");
                 process_received_msg(me, event);
             }
@@ -251,13 +252,16 @@ mod_rtu_error_t mod_rtu_master_init(mod_rtu_master_t *const me, const mod_rtu_ma
 }
 
 static mod_rtu_error_t master_request_start(mod_rtu_master_t *const me, const uint8_t device_addr, mod_rtu_msg_t *const msg) {
+    NRF_LOG_DEBUG("req start");
     if (me->state != mod_rtu_master_state_idle) {
+        NRF_LOG_DEBUG("  invalid state");
         return mod_rtu_error_invalid_state;
     }
 
     const mod_rtu_error_t addr_err = mod_rtu_address_validate(device_addr);
 
     if (addr_err != mod_rtu_error_ok) {
+        NRF_LOG_DEBUG("  bad address");
         return addr_err;
     }
 
@@ -355,6 +359,7 @@ mod_rtu_error_t mod_rtu_master_write_single_register_cb(mod_rtu_master_t *const 
     NRF_LOG_DEBUG("write single register");
 
     if (!in_range_uint16(addr, MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_MIN_ADDR, MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_MAX_ADDR)) {
+        NRF_LOG_DEBUG("  param error");
         return mod_rtu_error_parameter;
     }
     
@@ -365,6 +370,7 @@ mod_rtu_error_t mod_rtu_master_write_single_register_cb(mod_rtu_master_t *const 
     const mod_rtu_error_t setup_err = master_request_start(me, device_addr, &msg);
 
     if (setup_err != mod_rtu_error_ok) {
+        NRF_LOG_DEBUG("  setup error");
         return setup_err;
     }
 
