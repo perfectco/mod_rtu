@@ -289,6 +289,11 @@ static mod_rtu_error_t master_request_execute(mod_rtu_master_t *const me, mod_rt
 mod_rtu_error_t mod_rtu_master_read_coils(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count) {
     NRF_LOG_DEBUG("read coils");
 
+    if (me->state != mod_rtu_master_state_idle) {
+        NRF_LOG_DEBUG("  not idle");
+        return mod_rtu_error_invalid_state;
+    }
+    
     if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_READ_COILS_MIN_ADDR, MOD_RTU_FUNCTION_READ_COILS_MAX_ADDR)) {
         return mod_rtu_error_parameter;
     }
@@ -324,6 +329,11 @@ mod_rtu_error_t mod_rtu_master_read_holding_registers(mod_rtu_master_t *const me
 mod_rtu_error_t mod_rtu_master_read_holding_registers_cb(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count, const mod_rtu_master_callback_t cb, void *const context) {
     NRF_LOG_DEBUG("read holding registers");
 
+    if (me->state != mod_rtu_master_state_idle) {
+        NRF_LOG_DEBUG("  not idle");
+        return mod_rtu_error_invalid_state;
+    }
+    
     if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MIN_ADDR, MOD_RTU_FUNCTION_READ_HOLDING_REGISTERS_MAX_ADDR)) {
         return mod_rtu_error_parameter;
     }
@@ -358,6 +368,11 @@ mod_rtu_error_t mod_rtu_master_read_holding_registers_cb(mod_rtu_master_t *const
 mod_rtu_error_t mod_rtu_master_write_single_register_cb(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t addr, const uint16_t data, const mod_rtu_master_callback_t cb, void *const context) {
     NRF_LOG_DEBUG("write single register");
 
+    if (me->state != mod_rtu_master_state_idle) {
+        NRF_LOG_DEBUG("  not idle");
+        return mod_rtu_error_invalid_state;
+    }
+    
     if (!in_range_uint16(addr, MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_MIN_ADDR, MOD_RTU_FUNCTION_WRITE_SINGLE_REGISTER_MAX_ADDR)) {
         NRF_LOG_DEBUG("  param error");
         return mod_rtu_error_parameter;
@@ -390,6 +405,10 @@ mod_rtu_error_t mod_rtu_master_write_single_register_cb(mod_rtu_master_t *const 
 mod_rtu_error_t mod_rtu_master_write_multiple_registers_cb(mod_rtu_master_t *const me, const uint8_t device_addr, const uint16_t start_addr, const uint16_t count, const uint16_t *const data, 
                                                            const mod_rtu_master_callback_t cb, void *const context) {
     NRF_LOG_DEBUG("write multiple registers");
+    if (me->state != mod_rtu_master_state_idle) {
+        NRF_LOG_DEBUG("  not idle");
+        return mod_rtu_error_invalid_state;
+    }
 
     if (!in_range_uint16(start_addr, MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_MIN_ADDR, MOD_RTU_FUNCTION_WRITE_MULTIPLE_REGISTERS_MAX_ADDR)) {
         return mod_rtu_error_parameter;
